@@ -11,6 +11,8 @@
 <div id="sai"></div>
 <div id="ui"></div>
 <div id="toasts"></div>
+<button id="sndBtn" class="tbtn" type="button" aria-label="Sound" title="Sound"></button>
+<button id="fsBtn" class="tbtn" type="button" aria-label="Toggle full screen" title="Full screen (F)">⛶</button>
 <script src="js/util.js"></script>
 <script src="js/save.js"></script>
 <script src="js/audio.js"></script>
@@ -19,5 +21,47 @@
 <script src="js/render.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/main.js"></script>
+<script>
+(function () {
+  const fs = document.getElementById('fsBtn'), snd = document.getElementById('sndBtn'), d = document.documentElement;
+  const req = d.requestFullscreen || d.webkitRequestFullscreen;
+  if (!req) fs.style.display = 'none';
+  const isFs = () => document.fullscreenElement || document.webkitFullscreenElement;
+  window.toggleFs = () => { if (!req) return; if (isFs()) (document.exitFullscreen || document.webkitExitFullscreen).call(document); else req.call(d); };
+  window.toggleSound = () => { // one switch for effects + music
+    const s = save.settings, on = s.sound || s.music;
+    s.sound = s.music = !on; persist(); Sound.init(); Sound.music(true); if (on) { Sound.engine(0); Sound.siren(0); }
+    window.syncTopBtns(); if (typeof panel !== 'undefined' && panel === 'settings') showPanel('settings');
+  };
+  for (const [b, f] of [[fs, window.toggleFs], [snd, window.toggleSound]]) {
+    b.addEventListener('click', e => { e.stopPropagation(); b.blur(); f(); });
+    b.addEventListener('pointerdown', e => e.stopPropagation());
+  }
+  const place = () => { // one row with the pause button: pause, full screen, sound, vibration (right to left)
+    const p = btns().pause, dia = p.r * 2, gap = 2 * HU;
+    let k = 1;
+    for (const b of [fs, snd]) {
+      if (b.style.display === 'none') continue;
+      b.style.width = b.style.height = dia + 'px'; b.style.fontSize = dia * 0.5 + 'px'; b.style.borderRadius = '50%';
+      b.style.top = (p.y - p.r) + 'px'; b.style.bottom = 'auto'; b.style.left = 'auto';
+      b.style.right = (W - (p.x - p.r - gap - (k - 1) * (dia + gap))) + 'px'; k++;
+    }
+  };
+  window.syncTopBtns = () => {
+    const s = save.settings, on = s.sound || s.music;
+    const ic = '<svg viewBox="0 0 24 24" width="55%" height="55%" fill="#fff"><path d="M3 9v6h4l5 4V5L7 9H3z"/>' + (on ? '<path d="M15.5 8.5a5 5 0 0 1 0 7" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"/>' : '<path d="M16 9l5 6M21 9l-5 6" stroke="#fff" stroke-width="2" stroke-linecap="round"/>') + '</svg>';
+    if (snd.dataset.on !== String(on)) { snd.innerHTML = ic; snd.dataset.on = String(on); }
+    snd.title = on ? 'Stop sound' : 'Resume sound'; snd.style.opacity = on ? '1' : '.7';
+    fs.textContent = isFs() ? '✕' : '⛶'; fs.title = isFs() ? 'Exit full screen (F)' : 'Full screen (F)';
+  };
+  place(); window.syncTopBtns(); window.addEventListener('resize', place);
+  document.addEventListener('fullscreenchange', window.syncTopBtns); document.addEventListener('webkitfullscreenchange', window.syncTopBtns);
+  window.addEventListener('keydown', e => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const k = e.key.toLowerCase();
+    if (k === 'f') { toggleFs(); e.preventDefault(); } else if (k === 'm') toggleSound();
+  });
+})();
+</script>
 </body>
 </html>

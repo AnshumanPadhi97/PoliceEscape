@@ -3,7 +3,7 @@
 // The block of the cell sits between the roads: [i*CELL+ROAD/2, (i+1)*CELL-ROAD/2].
 let worldSeed = 1, worldT = 0, CELL = 64, ROAD = 16;
 let cells = new Map(), destroyed = new Set();
-let pedsL = [], treesL = [], parkedL = [], barrelsL = [], oilL = [], conesL = [], spikesL = [], coinsL = [];
+let pedsL = [], treesL = [], parkedL = [], barrelsL = [], oilL = [], conesL = [], spikesL = [], coinsL = [], billsL = [];
 
 function cellKind(i, j) {
   const v = (hash2(i, j, worldSeed) & 1023) / 1024;
@@ -14,7 +14,7 @@ const blockRect = (i, j) => ({ x0: i * CELL + ROAD / 2, y0: j * CELL + ROAD / 2,
 function genCell(i, j) {
   const R = mulberry(hash2(i, j, worldSeed + 7)), rr = (a, b) => a + R() * (b - a);
   const ox = i * CELL, oy = j * CELL, kind = cellKind(i, j), far = Math.hypot(i, j);
-  const c = { i, j, kind, peds: [], subs: [], trees: [], cars: [], barrels: [], oil: [], cones: [], spikes: [], coins: [] };
+  const c = { i, j, kind, peds: [], subs: [], trees: [], cars: [], barrels: [], oil: [], cones: [], spikes: [], coins: [], bills: [] };
   const B = blockRect(i, j), bw = B.x1 - B.x0, bh = B.y1 - B.y0, gap = 2 * U;
   if (kind === 'bld') {
     const layout = R(), pal = ['#8a8f9c', '#a1887f', '#7e8fa6', '#9e9a8c', '#8c7f9a', '#7f9a8c'];
@@ -75,14 +75,22 @@ function genCell(i, j) {
       if (away(x, y, 20) && !destroyed.has(id)) c.coins.push({ x, y, id, dead: false });
     }
   }
+  // green dollar bills: +5 points each
+  if (R() < 0.6) {
+    const p = road(), n = 1 + Math.floor(R() * 3), dir = p.v ? (R() < 0.5 ? Math.PI / 2 : -Math.PI / 2) : (R() < 0.5 ? 0 : Math.PI);
+    for (let k = 0; k < n; k++) {
+      const x = p.x + Math.cos(dir) * (k * 8 + 4) * U, y = p.y + Math.sin(dir) * (k * 8 + 4) * U, id = i + ',' + j + ',b' + k;
+      if (away(x, y, 20) && !destroyed.has(id)) c.bills.push({ x, y, id, dead: false });
+    }
+  }
   return c;
 }
 
 function loadCells() {
-  const i0 = Math.floor(cam.x / CELL) - 1, i1 = Math.floor((cam.x + W) / CELL) + 1, j0 = Math.floor(cam.y / CELL) - 1, j1 = Math.floor((cam.y + H) / CELL) + 1;
+  const i0 = Math.floor((cam.x - W * 0.125) / CELL) - 1, i1 = Math.floor((cam.x + W * 1.125) / CELL) + 1, j0 = Math.floor((cam.y - H * 0.125) / CELL) - 1, j1 = Math.floor((cam.y + H * 1.125) / CELL) + 1;
   for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { const k = i + ',' + j; if (!cells.has(k)) cells.set(k, genCell(i, j)); }
   for (const [k, c] of cells) if (c.i < i0 - 3 || c.i > i1 + 3 || c.j < j0 - 3 || c.j > j1 + 3) cells.delete(k);
-  pedsL = []; treesL = []; parkedL = []; barrelsL = []; oilL = []; conesL = []; spikesL = []; coinsL = [];
+  pedsL = []; treesL = []; parkedL = []; barrelsL = []; oilL = []; conesL = []; spikesL = []; coinsL = []; billsL = [];
   for (const c of cells.values()) {
     for (const o of c.peds) pedsL.push(o);
     for (const o of c.trees) treesL.push(o);
@@ -92,9 +100,10 @@ function loadCells() {
     for (const o of c.cones) conesL.push(o);
     for (const o of c.spikes) spikesL.push(o);
     for (const o of c.coins) if (!o.dead) coinsL.push(o);
+    for (const o of c.bills) if (!o.dead) billsL.push(o);
   }
 }
-function onScreen(x, y, m) { return x > cam.x - m && x < cam.x + W + m && y > cam.y - m && y < cam.y + H + m; }
+function onScreen(x, y, m) { return Math.abs(x - cam.x - W / 2) < W / 2 / zoom + m && Math.abs(y - cam.y - H / 2) < H / 2 / zoom + m; }
 
 // ---------- collision helpers ----------
 function circleRect(x, y, r, x0, y0, x1, y1) {

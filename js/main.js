@@ -3,23 +3,37 @@ const ptr = { down: false, x: 0, y: 0, id: null };
 const keys = {};
 const inCircle = (x, y, c, k = 1.25) => Math.hypot(x - c.x, y - c.y) < c.r * k;
 
-function pauseGame() { if (state !== 'play') return; state = 'pause'; Sound.music(false); Sound.engine(0); Sound.siren(0); showPanel('pause'); }
+function pauseGame() { joy.active = false; joy.dx = joy.dy = 0; if (state !== 'play') return; state = 'pause'; Sound.engine(0); Sound.siren(0); showPanel('pause'); }
 function resumeGame() { if (state !== 'pause') return; state = 'play'; showPanel(null); Sound.music(true); last = performance.now(); }
 
+const JOY_R = () => 11 * HU;
+const joyHome = () => ({ x: SAFE.l + 17 * HU, y: H - SAFE.b - 17 * HU });
 cv.addEventListener('pointerdown', e => {
   Sound.init();
+  touchUI = e.pointerType === 'touch';
   if (state !== 'play') return;
   const b = btns();
   if (inCircle(e.clientX, e.clientY, b.pause)) return pauseGame();
   if (inCircle(e.clientX, e.clientY, b.dash)) return dash();
+  if (touchUI) { // left side of the screen: floating joystick
+    if (joy.active || e.clientX > W * 0.62) return;
+    joy.active = true; joy.id = e.pointerId; joy.bx = joy.x = e.clientX; joy.by = joy.y = e.clientY; joy.dx = joy.dy = 0;
+    return;
+  }
   ptr.id = e.pointerId; ptr.down = true; ptr.x = e.clientX; ptr.y = e.clientY;
 });
-cv.addEventListener('pointermove', e => { if (ptr.down && e.pointerId === ptr.id) { ptr.x = e.clientX; ptr.y = e.clientY; } });
-const release = e => { if (e.pointerId === ptr.id) ptr.down = false; };
+cv.addEventListener('pointermove', e => {
+  if (joy.active && e.pointerId === joy.id) {
+    let dx = e.clientX - joy.bx, dy = e.clientY - joy.by; const R = JOY_R(), m = Math.hypot(dx, dy);
+    if (m > R) { dx = dx / m * R; dy = dy / m * R; }
+    joy.x = joy.bx + dx; joy.y = joy.by + dy; joy.dx = dx / R; joy.dy = dy / R;
+  } else if (ptr.down && e.pointerId === ptr.id) { ptr.x = e.clientX; ptr.y = e.clientY; }
+});
+const release = e => { if (e.pointerId === ptr.id) ptr.down = false; if (e.pointerId === joy.id) { joy.active = false; joy.dx = joy.dy = 0; } };
 window.addEventListener('pointerup', release); window.addEventListener('pointercancel', release);
 
 window.addEventListener('keydown', e => {
-  keys[e.key] = true; Sound.init();
+  keys[e.key] = true; Sound.init(); touchUI = false;
   const k = e.key.toLowerCase();
   if (state === 'play') {
     if (e.key === ' ' || e.key === 'Shift') { dash(); e.preventDefault(); }

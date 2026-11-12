@@ -1,10 +1,16 @@
 // ---------- canvas + helpers ----------
 const cv = document.getElementById('c');
-const ctx = cv.getContext('2d');
+let ctx = cv.getContext('2d'); // let: the garage preview temporarily draws to its own canvas
 let W, H, U, DPR;
 let HU = 5.2;                                   // HUD unit: like U, but never smaller than a readable size on phones
 const SAFE = { t: 0, r: 0, b: 0, l: 0 };        // screen insets (notch, rounded corners, system bars) in px
 const TOUCH = (window.matchMedia && matchMedia('(pointer:coarse)').matches) || 'ontouchstart' in window;
+let zoom = 1;                                    // camera zoom (<1 = zoomed out while boosting)
+const sx = x => (x - cam.x - W / 2) * zoom + W / 2; // world -> screen
+const sy = y => (y - cam.y - H / 2) * zoom + H / 2;
+const isRain = () => wType === 'rain' || wType === 'storm';
+let touchUI = TOUCH;                              // auto-switches to match the last input used (finger vs mouse/keyboard)
+const joy = { active: false, id: null, bx: 0, by: 0, x: 0, y: 0, dx: 0, dy: 0 }; // floating virtual joystick (screen px; dx,dy = -1..1)
 function readSafe() {
   const el = document.getElementById('sai');
   if (el) { const cs = getComputedStyle(el); SAFE.t = parseFloat(cs.paddingTop) || 0; SAFE.r = parseFloat(cs.paddingRight) || 0; SAFE.b = parseFloat(cs.paddingBottom) || 0; SAFE.l = parseFloat(cs.paddingLeft) || 0; }

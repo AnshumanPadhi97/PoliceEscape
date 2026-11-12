@@ -1,7 +1,7 @@
 // ---------- DOM menus (menu, shop, settings, readme, pause, game over) ----------
 const uiEl = document.getElementById('ui');
 const toastEl = document.getElementById('toasts');
-let panel = null, backTo = 'menu';
+let panel = null, backTo = 'menu', shopTab = 'car', prevId = null, prevAng = 0, prevRaf = 0;
 
 function toast(text) {
   const d = document.createElement('div'); d.className = 'toast'; d.textContent = text; toastEl.appendChild(d);
@@ -11,15 +11,21 @@ const fmt = n => Math.floor(n).toLocaleString();
 
 const VIEWS = {
   menu() {
-    return `<h1>POLICE ESCAPE</h1>
-      <p class="sub">Endless city · Best <b>${fmt(save.best)}</b> · <span class="coin">● ${fmt(save.coins)}</span></p>
-      <button class="btn" data-act="play">PLAY</button>
-      <div class="grid2">
-        <button class="btn alt" data-act="shop">Shop</button>
-        <button class="btn alt" data-act="settings">Settings</button>
-      </div>
-      <button class="btn alt" data-act="readme">How to play (README)</button>
-      <p class="tip">${TOUCH ? 'Hold &amp; drag to steer · tap NITRO to dash' : 'Hold &amp; drag (or ← → / A D) to steer · Space = nitro · P = pause'}<br>Lure cops into buildings, parked cars and each other.</p>`;
+    return `<h1>POLICE<br>ESCAPE</h1>
+      <div class="pills"><span>\u2605 Best <b>${fmt(save.best)}</b></span><span class="coin">\u25CF ${fmt(save.coins)}</span></div>
+      <button class="btn play" data-act="play">PLAY</button>`;
+  },
+  controls() {
+    const row = (a, k, t) => `<tr><td>${a}</td><td>${k}</td><td>${t}</td></tr>`;
+    return `<h2>CONTROLS</h2>
+      <table class="ctl"><tr><th></th><th>Keyboard / mouse</th><th>Touch</th></tr>
+      ${row('Steer', '\u2190 \u2192 or A D, or drag', 'Joystick (left)')}
+      ${row('Boost', 'Space or Shift', 'BOOST button')}
+      ${row('Pause', 'P or Esc', 'Pause button')}
+      ${row('Full screen', 'F', 'Top button')}
+      ${row('Sound on/off', 'M', 'Top button')}
+      </table>
+      <button class="btn alt" data-act="back">Back</button>`;
   },
   pause() {
     return `<h2>PAUSED</h2>
@@ -32,40 +38,44 @@ const VIEWS = {
     return `<h2>BUSTED!</h2>
       <p class="big">${fmt(r.score)}</p>
       ${r.newBest ? '<p class="gold">★ New best! ★</p>' : ''}
-      <p class="sub">Time ${Math.floor(r.time)}s · <span class="coin">+${r.coins} coins</span></p>
-      <button class="btn" data-act="retry">Retry</button>
-      <div class="grid2">
-        <button class="btn alt" data-act="shop">Shop</button>
-        <button class="btn alt" data-act="quit">Menu</button>
-      </div>`;
+      <div class="pills"><span>${Math.floor(r.time)}s</span><span class="coin">+${r.coins} \u25CF</span></div>
+      <button class="btn play" data-act="retry">RETRY</button>
+      <button class="btn alt" data-act="quit">Menu</button>`;
   },
   shop() {
-    let h = `<h2>SHOP</h2><p class="sub coin">● ${fmt(save.coins)}</p>`;
-    for (const kind of ['car', 'bike']) {
-      h += `<h3>${kind === 'car' ? 'Cars' : 'Bikes'}</h3><div class="sgrid">`;
-      for (const id in CARS) {
-        const b = CARS[id]; if (b.kind !== kind) continue;
-        const owned = save.owned[id], sel = save.car === id;
-        h += `<div class="row"><div><b>${b.name}</b><small>${b.desc}</small></div>` +
-          (sel ? '<span class="tag">Selected</span>' : owned ? `<button class="btn sm" data-act="car" data-arg="${id}">Select</button>`
-            : `<button class="btn sm ${save.coins < b.cost ? 'off' : ''}" data-act="car" data-arg="${id}">● ${b.cost}</button>`) + '</div>';
+    const bar = (v, lo, hi) => `<i style="--v:${Math.round(clamp((v - lo) / (hi - lo), 0.06, 1) * 100)}%"></i>`;
+    let h = `<div class="shophead"><h2>GARAGE</h2><span class="coinpill">● ${fmt(save.coins)}</span></div>
+      ${shopTab === 'up' ? '' : '<canvas id="gprev" class="gprev" width="640" height="300"></canvas>'}
+      <div class="tabs">${[['car', 'Cars'], ['bike', 'Bikes'], ['up', 'Upgrades']].map(([k, n]) => `<button class="tab ${shopTab === k ? 'on' : ''}" data-act="tab" data-arg="${k}">${n}</button>`).join('')}</div>`;
+    if (shopTab === 'up') {
+      h += '<div class="ulist">';
+      for (const k in UPGRADES) {
+        const lv = save.up[k], u = UPGRADES[k];
+        h += `<div class="ucard"><div><b>${u.name}</b><small>${u.desc}</small><div class="seg">${Array.from({ length: UP_MAX }, (_, i) => `<i class="${i < lv ? 'on' : ''}"></i>`).join('')}</div></div>` +
+          (lv >= UP_MAX ? '<span class="tag">MAX</span>' : `<button class="btn sm ${save.coins < UP_COST[lv] ? 'off' : ''}" data-act="up" data-arg="${k}">● ${UP_COST[lv]}</button>`) + '</div>';
       }
-      if (kind === 'car') h += '</div>';
+      h += '</div>';
+    } else {
+      h += '<div class="vgrid">';
+      for (const id in CARS) {
+        const v = CARS[id]; if (v.kind !== shopTab) continue;
+        const owned = save.owned[id], sel = save.car === id, bike = v.kind === 'bike';
+        h += `<div class="vcard ${sel ? 'sel' : ''} ${prevId === id ? 'pv' : ''}" data-act="prev" data-arg="${id}">
+          <b>${v.name}</b><small>${v.desc}</small>
+          <div class="stats"><span>SPD</span>${bar(v.speed, 24, 50)}<span>HND</span>${bar(v.turn, 2, 4.4)}<span>NOS</span>${bar(4 - v.dashCd, 0.3, 2.2)}</div>
+          ${sel ? '<span class="tag">Selected</span>' : owned ? `<button class="btn sm" data-act="car" data-arg="${id}">Select</button>`
+            : `<button class="btn sm ${save.coins < v.cost ? 'off' : ''}" data-act="car" data-arg="${id}">● ${v.cost}</button>`}</div>`;
+      }
+      h += '</div>';
     }
-    h += '</div><h3>Upgrades</h3><div class="sgrid">';
-    for (const k in UPGRADES) {
-      const lv = save.up[k], u = UPGRADES[k];
-      h += `<div class="row"><div><b>${u.name}</b><small>${u.desc}</small><span class="pips">${'●'.repeat(lv)}${'○'.repeat(UP_MAX - lv)}</span></div>` +
-        (lv >= UP_MAX ? '<span class="tag">MAX</span>' : `<button class="btn sm ${save.coins < UP_COST[lv] ? 'off' : ''}" data-act="up" data-arg="${k}">● ${UP_COST[lv]}</button>`) + '</div>';
-    }
-    return h + '</div><button class="btn alt" data-act="back">Back</button>';
+    return h + '<button class="btn alt" data-act="back">Back</button>';
   },
   readme() {
     return '<h2>README</h2><div id="md" class="md">Loading...</div><button class="btn alt" data-act="back">Back</button>';
   },
   settings() {
     const s = save.settings, tg = (k, n) => `<div class="row"><b>${n}</b><button class="btn sm ${s[k] ? '' : 'alt'}" data-act="toggle" data-arg="${k}">${s[k] ? 'ON' : 'OFF'}</button></div>`;
-    return '<h2>SETTINGS</h2>' + tg('sound', 'Sound effects') + tg('music', 'Music') + tg('haptics', 'Vibration') + '<button class="btn alt" data-act="back">Back</button>';
+    return '<h2>SETTINGS</h2>' + tg('sound', 'Sound effects') + tg('music', 'Music') + '<button class="btn alt" data-act="back">Back</button>';
   },
 };
 
@@ -103,8 +113,9 @@ function loadReadme() {
 }
 function showPanel(name) {
   panel = name;
-  uiEl.innerHTML = name ? `<div class="panel ${name === 'readme' ? 'wide' : ''}">${VIEWS[name]()}</div>` : '';
+  uiEl.innerHTML = name ? `<div class="panel ${name === 'readme' ? 'wide' : name === 'shop' ? 'shopp' : ''}">${VIEWS[name]()}</div>` : '';
   if (name === 'readme') loadReadme();
+  if (name === 'shop') { if (!prevId || !CARS[prevId] || CARS[prevId].kind !== shopTab) prevId = CARS[save.car].kind === shopTab ? save.car : Object.keys(CARS).find(k => CARS[k].kind === shopTab); if (!prevRaf) prevRaf = requestAnimationFrame(garageTick); }
 }
 function openSub(name) { if (['menu', 'pause', 'over'].includes(panel)) backTo = panel; showPanel(name); }
 
@@ -115,10 +126,12 @@ function act(a, arg) {
     case 'retry': start(false); break;
     case 'resume': resumeGame(); break;
     case 'quit': state = 'menu'; Sound.engine(0); Sound.siren(0); Sound.music(true); showPanel('menu'); break;
-    case 'shop': case 'settings': case 'readme': openSub(a); break;
+    case 'shop': case 'settings': case 'readme': case 'controls': openSub(a); break;
+    case 'tab': shopTab = arg; prevId = null; showPanel('shop'); break;
+    case 'prev': prevId = arg; showPanel('shop'); break;
     case 'back': showPanel(backTo || 'menu'); break;
     case 'car': {
-      const b = CARS[arg];
+      const b = CARS[arg]; shopTab = b.kind; prevId = arg;
       if (save.owned[arg]) save.car = arg;
       else if (save.coins >= b.cost) { save.coins -= b.cost; save.owned[arg] = true; save.car = arg; toast('Unlocked ' + b.name + '!'); }
       persist(); showPanel('shop'); break;
@@ -130,8 +143,31 @@ function act(a, arg) {
     }
     case 'toggle':
       save.settings[arg] = !save.settings[arg]; persist();
-      if (arg === 'music') Sound.music(state !== 'pause');
+      if (arg === 'music') Sound.music(true);
+      if (window.syncTopBtns) syncTopBtns();
       showPanel('settings'); break;
   }
 }
 uiEl.addEventListener('click', e => { const b = e.target.closest('[data-act]'); if (b && !b.classList.contains('off')) { Sound.init(); act(b.dataset.act, b.dataset.arg); } });
+
+// ---------- garage: big spinning preview, drawn with the game's own vehicle sprites ----------
+function garageTick(now) {
+  prevRaf = 0;
+  const c = panel === 'shop' && document.getElementById('gprev');
+  if (!c || !prevId || !CARS[prevId]) return;
+  prevAng = now / 1000 * 0.9;
+  const v = CARS[prevId], g = c.getContext('2d'), w = c.width, h = c.height;
+  g.clearRect(0, 0, w, h);
+  const bg = g.createRadialGradient(w / 2, h / 2, 10, w / 2, h / 2, w * 0.5); bg.addColorStop(0, '#3a4356'); bg.addColorStop(1, '#171b26');
+  g.fillStyle = bg; g.fillRect(0, 0, w, h);
+  g.strokeStyle = 'rgba(138,180,255,.25)'; g.lineWidth = 2; g.beginPath(); g.ellipse(w / 2, h / 2, 150, 110, 0, 0, TAU); g.stroke();
+  const sCtx = ctx, sU = U, sT = tmNow;
+  ctx = g; U = 30; tmNow = now / 1000;
+  try {
+    ctx.save(); ctx.translate(w / 2, h / 2);
+    if (v.kind === 'bike') drawBike(0, 0, prevAng, v.len * U, v.wid * U, v.col);
+    else carSprite(0, 0, prevAng, v.len * U, v.wid * U, v.col, { stripe: v.stripe || null, roof: v.roof || null });
+    ctx.restore();
+  } finally { ctx = sCtx; U = sU; tmNow = sT; }
+  prevRaf = requestAnimationFrame(garageTick);
+}
